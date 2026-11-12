@@ -37,7 +37,7 @@ wifi:
 captive_portal:
 
 # Bluetooth proxy with active scanning. Active mode sends scan requests to
-# advertising devices, which makes iBeacons (like Murphy) respond faster and
+# advertising devices, which makes iBeacons respond faster and
 # more reliably than passive-only mode. Passive is fine if you're seeing too
 # much WiFi/BT contention.
 bluetooth_proxy:

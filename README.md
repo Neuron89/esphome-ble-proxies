@@ -1,87 +1,122 @@
-# BLE Proxies — replacing ESPresense with ESPHome Bluetooth Proxy
+# esphome-ble-proxies
 
-Modern HA-recommended path for room-level BLE tracking. Replaces the broken ESPresense MQTT-based stack with the native HA `bluetooth` integration fed by ESPHome `bluetooth_proxy:` devices.
+ESPHome Bluetooth proxy firmware configurations for room-level BLE tracking in Home Assistant, with a step-by-step guide for converting existing ESPresense nodes.
 
-## Why this is better than ESPresense
+Each ESP32 runs ESPHome's `bluetooth_proxy` component and forwards BLE advertisements to Home Assistant over the encrypted native API. Home Assistant's built-in `bluetooth` integration aggregates the feeds from every proxy, so trackers such as iBeacons are located by whichever room's node hears them best. No MQTT broker or custom firmware is involved.
 
-| | ESPresense (old) | ESPHome BLE Proxy (new) |
+## What is included
+
+- One ESPHome YAML per room in `firmwares/`, identical apart from the `substitutions` block, ready to copy for additional rooms.
+- Encrypted Home Assistant API, password-protected OTA updates, and a fallback access point with captive portal for recovery.
+- Active BLE scanning enabled by default.
+- Diagnostic entities per node: online status, uptime, Wi-Fi signal, ESPHome version, and internal temperature.
+- A `secrets.example.yaml` listing every secret the configurations reference.
+
+## ESPHome Bluetooth proxy compared with ESPresense
+
+| | ESPresense | ESPHome Bluetooth proxy |
 |---|---|---|
-| Transport | MQTT broker | HA native API (encrypted) |
-| Distance | RSSI-based, per-node | RSSI-based, HA aggregates |
-| Discovery | MQTT discovery (fragile, write-once URLs) | mDNS auto-discovery |
-| Maintenance | Custom firmware | Standard ESPHome dashboard |
-| HA integration | iBeacon Tracker (also works) | iBeacon Tracker + Bluetooth + private_ble_device |
-| Tracking targets | iBeacons, BLE-classic | iBeacons, AirTags (with FindMy add-on), thermometers, locks, weather sensors, etc. |
+| Transport | MQTT broker | Home Assistant native API (encrypted) |
+| Distance | RSSI-based, per node | RSSI-based, aggregated by Home Assistant |
+| Discovery | MQTT discovery | mDNS auto-discovery |
+| Maintenance | Custom firmware | Standard ESPHome dashboard and OTA |
+| Home Assistant integration | iBeacon Tracker | iBeacon Tracker, Bluetooth, Private BLE Device |
+| Tracking targets | iBeacons and other BLE advertisers | iBeacons plus any device supported by a Home Assistant Bluetooth integration (thermometers, locks, sensors) |
 
-## Hardware inventory (8 nodes to convert)
+## Hardware
 
-| Room | Old IP (ESPresense) | New device name (ESPHome) | Status |
-|---|---|---|---|
-| Hayden's Office | 192.168.1.51 | `ble-proxy-office` | YAML drafted |
-| Master Bedroom | 10.10.1.174 | `ble-proxy-master-bedroom` | TBD |
-| Master Bathroom | 10.10.1.199 | `ble-proxy-master-bathroom` | TBD |
-| Theater | 10.10.1.214 | `ble-proxy-theater` | TBD |
-| Kitchen | 10.10.1.101 | `ble-proxy-kitchen` | TBD |
-| Living Room | 10.10.1.21 | `ble-proxy-living-room` | TBD (currently offline in MQTT) |
-| Shop | 10.10.1.251 | `ble-proxy-shop` | TBD |
-| Master Bedroom (alt) | 192.168.3.16 (stale) | – | drop, duplicate |
+The configurations target generic ESP32 development boards (`board: esp32dev`) and were written for ESP32-D0WD-V3 modules. Nodes are USB-powered, so Wi-Fi power saving is disabled for reliability.
 
-All hardware is **ESP32-D0WD-V3** (verified via HA's earlier device registry). Standard `esp32dev` board target works for all of them.
+| Configuration | Device name | Framework |
+|---|---|---|
+| `ble-proxy-kitchen.yaml` | `ble-proxy-kitchen` | ESP-IDF |
+| `ble-proxy-living-room.yaml` | `ble-proxy-living-room` | ESP-IDF |
+| `ble-proxy-master-bathroom.yaml` | `ble-proxy-master-bathroom` | ESP-IDF |
+| `ble-proxy-master-bedroom.yaml` | `ble-proxy-master-bedroom` | ESP-IDF |
+| `ble-proxy-office.yaml` | `ble-proxy-office` | Arduino |
+| `ble-proxy-shop.yaml` | `ble-proxy-shop` | ESP-IDF |
+| `ble-proxy-theater.yaml` | `ble-proxy-theater` | ESP-IDF |
 
-## Rollout plan
+`ble-proxy-office.yaml` is a conservative variant: Arduino framework, serial logging left on at 115200 baud, and no internal temperature sensor. Use it as the starting point if a board boot-loops on the ESP-IDF configuration.
 
-Do node-by-node, not all at once — that way Murphy/the BLE network keeps working through the migration.
+## Getting started
 
-### Phase 1 — Office (proof of concept)
+### Prerequisites
 
-1. **Pull the office ESPresense node** off the wall (or wherever it lives).
-2. **Plug it into a laptop via USB.**
-3. **Generate firmware** via the ESPHome dashboard add-on in HA:
-   - Settings → Add-ons → ESPHome → "Open Web UI"
-   - "+ New Device" → "Continue"
-   - Name: `ble-proxy-office` → install platform: `ESP32`
-   - When the wizard finishes, click "Edit" on the device card
-   - Replace the generated YAML with the contents of `firmwares/ble-proxy-office.yaml` from this repo
-   - Add the missing secrets to your ESPHome `secrets.yaml` (see `firmwares/secrets.example.yaml`)
-   - Click "Save", then "Install" → "Manual download" → wait for compile, download the `.bin`
-4. **Web-flash the firmware**:
-   - In Chrome/Edge, open https://web.esphome.io/
-   - "Connect" → select the ESP32's serial port → "Install"
-   - Upload the `.bin` from step 3
-   - Wait ~30 seconds for flash + reboot
-5. **Reattach the node** at its location, power it on.
-6. **Verify in HA**:
-   - Settings → Devices & Services → look for "Discovered" → ESPHome → `ble-proxy-office` → adopt
-   - Settings → Devices & Services → Bluetooth → should show a new "scanner" for the office
-   - Confirm `device_tracker.murphy` now lists *two* `source` MACs in its attributes (the EP1 + the new proxy) — this means HA's Bluetooth integration is fusing both feeds.
+- Home Assistant with the ESPHome add-on (or a standalone ESPHome installation)
+- An ESP32 development board and a USB data cable
+- Chrome or Edge for web flashing
 
-### Phase 2 — Rinse and repeat for the other 6
+### Secrets
 
-For each of the remaining 6 nodes (skip the duplicate Master Bedroom at 192.168.3.16), copy `ble-proxy-office.yaml` to a new file with the room name in the substitutions. Steps 1–6 above for each one. Each conversion takes ~10 minutes if the laptop is already set up.
+Copy the entries from `firmwares/secrets.example.yaml` into the `secrets.yaml` used by your ESPHome dashboard and fill in real values.
 
-Order suggestion (by room utility for tracking):
+| Secret | Purpose | How to generate |
+|---|---|---|
+| `wifi_ssid` | Wi-Fi network name | – |
+| `wifi_password` | Wi-Fi password | – |
+| `wifi_fallback_password` | Password for the fallback access point (minimum 8 characters) | `openssl rand -base64 16` |
+| `api_encryption_key` | Home Assistant native API encryption key | `openssl rand -base64 32` |
+| `ota_password` | OTA update password | `openssl rand -base64 16` |
 
-1. Master Bedroom
-2. Master Bathroom
-3. Living Room (and confirm it stops being "offline" — it was in MQTT land)
-4. Kitchen
-5. Theater
-6. Shop
+`secrets.yaml` is excluded by `.gitignore`.
 
-### Phase 3 — Cleanup
+### Build and flash a node
 
-Once all 7 nodes are running ESPHome, the old ESPresense MQTT integration's clutter can be dropped:
+1. Connect the ESP32 to a computer over USB.
+2. In Home Assistant, open **Settings → Add-ons → ESPHome → Open Web UI**.
+3. Choose **New Device**, name it to match the configuration (for example `ble-proxy-office`), and select **ESP32** as the platform.
+4. Click **Edit** on the new device card and replace the generated YAML with the matching file from `firmwares/`.
+5. Click **Save**, then **Install → Manual download**, and download the compiled `.bin`.
+6. Open <https://web.esphome.io/>, click **Connect**, select the board's serial port, choose **Install**, and upload the `.bin`. Flashing and reboot take about 30 seconds.
+7. Mount the node in its room and power it.
 
-1. Delete the 8 stale ESPresense devices from HA's device registry.
-2. Optionally retire the iBeacon Tracker integration if you decide to use `private_ble_device` instead (single-device, more deterministic).
-3. Update `dashboards_overview.md` if you have a presence dashboard built around ESPresense entities.
+Later updates can be installed over the air from the ESPHome dashboard.
 
-## Why `bluetooth_proxy: active: true`
+### Verify in Home Assistant
 
-Active scanning sends scan request packets to advertisers, prompting them to send scan response data (extra fields, device names). Passive-only ("active: false") just listens. For iBeacons like Murphy, active is faster + more reliable, and the BLE traffic increase is negligible.
+1. Under **Settings → Devices & Services**, adopt the discovered ESPHome device.
+2. Open the **Bluetooth** integration and confirm that a new scanner is listed for the node.
+3. Check a tracked BLE device: once more than one proxy hears it, its `source` attribute changes as it moves between rooms, which confirms Home Assistant is combining the feeds.
 
-If you ever see the proxy struggling under high BLE load (e.g. lots of phones nearby), flip to `active: false` per node.
+### Add a room
 
-## Why `framework: esp-idf` over `arduino`
+Copy any ESP-IDF configuration to a new file and edit the `substitutions` block:
 
-ESP-IDF supports more concurrent BLE connections (~10) and is more memory-efficient. Arduino works for the basic proxy use case but caps at ~5 concurrent BLE connections — a problem if you later track many BLE devices simultaneously.
+```yaml
+substitutions:
+  device_name: ble-proxy-garage
+  friendly_name: BLE Proxy Garage
+  room: garage
+```
+
+## Migrating from ESPresense
+
+ESPresense nodes can be reflashed in place; the hardware does not change.
+
+1. Convert one node first as a proof of concept, following the build and flash steps above.
+2. Convert the remaining nodes one at a time so that presence detection keeps working during the migration. Each conversion takes roughly ten minutes once the first is done.
+3. When every node is running ESPHome, delete the stale ESPresense devices from the Home Assistant device registry and update any dashboards or automations that reference ESPresense entities.
+4. Optionally replace the iBeacon Tracker integration with Private BLE Device for trackers that use resolvable private addresses.
+
+## Design notes
+
+**Active scanning.** `bluetooth_proxy: active: true` sends scan requests to advertisers so they return scan-response data such as device names. For iBeacons this is faster and more reliable than passive listening, and the extra BLE traffic is negligible. If a node struggles in a busy RF environment, set `active: false` for that node.
+
+**ESP-IDF over Arduino.** ESP-IDF is more memory-efficient and supports more concurrent BLE connections than the Arduino framework. Arduino is sufficient for a basic advertisement proxy and is used in the office configuration for easier first-flash diagnosis.
+
+**Serial logging disabled.** The ESP-IDF configurations set `baud_rate: 0`, which frees the UART pins and reduces interrupt load. Re-enable it when debugging a board over USB.
+
+**No reboot on API disconnect.** `reboot_timeout: 0s` keeps nodes running through brief Home Assistant restarts instead of rebooting.
+
+## Project structure
+
+```
+firmwares/
+  ble-proxy-<room>.yaml    One ESPHome configuration per room
+  secrets.example.yaml     Template for the ESPHome secrets file
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
